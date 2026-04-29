@@ -1,14 +1,17 @@
 'use client';
 
-import { Button, Input, Space, Form, Upload, Image, Modal, Descriptions } from "antd";
+import { Button, Input, Space, Form, Upload, Image, Modal, Descriptions, Rate, List, Card, Typography, Divider } from "antd";
 import { useEffect, useRef, useState } from "react";
-import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, StarOutlined, CommentOutlined } from "@ant-design/icons";
 import ShowAlert from "@/app/components/atoms/Alert/page";
 import Loader from "@/app/components/atoms/Loading/page";
 import SimpleResponsiveTable from "@/app/components/atoms/CustomTable/SimpleResponsiveTable";
 import Modalview from "@/app/components/atoms/Modalview/page";
 import { ApiCallDelete, ApiCallGEt, ApiCallPOST, ApiCallPut } from "@/app/api/api-content";
 import Checkbox from "antd/es/checkbox/Checkbox";
+
+const { TextArea } = Input;
+const { Title, Text } = Typography;
 
 interface User {
   productName: string;
@@ -30,15 +33,27 @@ interface UserFormData {
   availability?: boolean;
 }
 
+interface Review {
+  productId: number;
+  rating: number;
+  description: string;
+  reviewId?: number;
+  createdAt?: string;
+}
+
 export default function DashboardPage() {
   const [itemlist, setItemList] = useState<User[]>([]);
   const [createModule, setCreateModule] = useState<boolean>(false);
   const [viewModule, setViewModule] = useState<boolean>(false);
+  const [reviewModule, setReviewModule] = useState<boolean>(false);
+  const [viewReviewsModule, setViewReviewsModule] = useState<boolean>(false);
   const [selectedProduct, setSelectedProduct] = useState<User | null>(null);
   const [loaderModule, setLoaderModule] = useState<boolean>(false);
   const [editData, setEditData] = useState<UserFormData | null>(null);
-  const [imageUrl, setImageUrl] = useState<string>(""); // For single image input
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [form] = Form.useForm();
+  const [reviewForm] = Form.useForm();
   const hasFetched = useRef(false);
 
   useEffect(() => {
@@ -55,12 +70,25 @@ export default function DashboardPage() {
       setItemList(data?.data || []);
       setLoaderModule(false);
     } catch (error) {
-      console.error("Error fetching users:", error);
+      console.error("Error fetching products:", error);
       ShowAlert({
         title: 'Error',
-        description: 'Failed to load users',
+        description: 'Failed to load Products',
         type: 'error',
       });
+      setLoaderModule(false);
+    }
+  };
+
+  const fetchReviews = async (productId: number) => {
+    try {
+      setLoaderModule(true);
+      const data = await ApiCallGEt({ productId: productId }, `/product-review`);
+      setReviews(data?.data || []);
+      setLoaderModule(false);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      setReviews([]);
       setLoaderModule(false);
     }
   };
@@ -71,20 +99,17 @@ export default function DashboardPage() {
   };
 
   const handleEdit = (record: User) => {
-    // Reset form first
     form.resetFields();
 
-    // Set form values for editing
     form.setFieldsValue({
       productName: record.productName,
       description: record.description || '',
       price: record.price,
       sku: record.sku || '',
       availability: record.availability || false,
-      images: Array.isArray(record.images) ? record.images[0] : record.images || '', // Set first image URL
+      images: Array.isArray(record.images) ? record.images[0] : record.images || '',
     });
 
-    // Set image URL for editing
     setImageUrl(Array.isArray(record.images) ? record.images[0] : record.images || '');
 
     setEditData({
@@ -107,7 +132,7 @@ export default function DashboardPage() {
         description: 'Product has been deleted.',
         type: 'success',
       });
-      fetchUsers(); // Refresh the list
+      fetchUsers();
     } catch (error) {
       ShowAlert({
         title: 'Error',
@@ -118,33 +143,66 @@ export default function DashboardPage() {
   };
 
   const handleAddProduct = () => {
-    // Reset form completely
     form.resetFields();
-    // Reset image URL
     setImageUrl("");
-    // Reset edit data
     setEditData(null);
-    // Open modal
     setCreateModule(true);
+  };
+
+  const handleAddReview = (product: User) => {
+    setSelectedProduct(product);
+    reviewForm.resetFields();
+    setReviewModule(true);
+  };
+
+  const handleViewReviews = async (product: User) => {
+    setSelectedProduct(product);
+    await fetchReviews(product.productId);
+    setViewReviewsModule(true);
+  };
+
+  const onSubmitReview = async (values: { rating: number; description: string }) => {
+    try {
+      setLoaderModule(true);
+      const payload = {
+        productId: selectedProduct?.productId,
+        rating: values.rating,
+        description: values.description
+      };
+
+      await ApiCallPOST(payload, '/product-review');
+      ShowAlert({
+        title: 'Success',
+        description: 'Review added successfully',
+        type: 'success',
+      });
+      setReviewModule(false);
+      reviewForm.resetFields();
+      setLoaderModule(false);
+    } catch (error) {
+      ShowAlert({
+        title: 'Error',
+        description: 'Failed to add review',
+        type: 'error',
+      });
+      setLoaderModule(false);
+    }
   };
 
   const onSubmit = async (values: UserFormData) => {
     try {
       setLoaderModule(true);
 
-      // Handle image - get the URL from form or state
-     
       const payload = {
         productName: values.productName,
         price: values.price,
         sku: values.sku,
         description: values.description,
-        images: values.images, // Send as array of URLs
+        images: values.images,
         availability: values.availability || false
       };
 
       if (editData?.productId) {
-        // Update existing product
         await ApiCallPut(payload, `/products/${editData.productId}`);
         ShowAlert({
           title: 'Updated Successfully',
@@ -152,7 +210,6 @@ export default function DashboardPage() {
           type: 'success',
         });
       } else {
-        // Create new product
         await ApiCallPOST(payload, '/products');
         ShowAlert({
           title: 'Created Successfully',
@@ -166,7 +223,7 @@ export default function DashboardPage() {
       setImageUrl("");
       form.resetFields();
       setEditData(null);
-      fetchUsers(); // Refresh the list
+      fetchUsers();
     } catch (error) {
       console.error("Error:", error);
       ShowAlert({
@@ -181,10 +238,14 @@ export default function DashboardPage() {
   const handleModalClose = () => {
     setCreateModule(false);
     setViewModule(false);
+    setReviewModule(false);
+    setViewReviewsModule(false);
     form.resetFields();
+    reviewForm.resetFields();
     setImageUrl("");
     setEditData(null);
     setSelectedProduct(null);
+    setReviews([]);
   };
 
   const columns = [
@@ -231,7 +292,7 @@ export default function DashboardPage() {
     {
       title: 'Action',
       key: 'action',
-      width: 150,
+      width: 200,
       render: (_: any, record: User) => (
         <div style={{ display: 'flex', gap: 12 }}>
           <EyeOutlined
@@ -245,6 +306,14 @@ export default function DashboardPage() {
           <DeleteOutlined
             style={{ cursor: "pointer", color: "red", fontSize: "20px" }}
             onClick={() => handleDelete(record.productId)}
+          />
+          <CommentOutlined
+            style={{ cursor: "pointer", color: "orange", fontSize: "20px" }}
+            onClick={() => handleAddReview(record)}
+          />
+          <StarOutlined
+            style={{ cursor: "pointer", color: "gold", fontSize: "20px" }}
+            onClick={() => handleViewReviews(record)}
           />
         </div>
       ),
@@ -276,11 +345,7 @@ export default function DashboardPage() {
         onCancel={handleModalClose}
         width={800}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onSubmit}
-        >
+        <Form form={form} layout="vertical" onFinish={onSubmit}>
           <Form.Item
             name="productName"
             label="Product Name"
@@ -294,10 +359,7 @@ export default function DashboardPage() {
             label="Description"
             rules={[{ required: true, message: 'Please enter description' }]}
           >
-            <Input.TextArea
-              placeholder="Enter description"
-              rows={4}
-            />
+            <Input.TextArea placeholder="Enter description" rows={4} />
           </Form.Item>
 
           <Form.Item
@@ -308,12 +370,7 @@ export default function DashboardPage() {
               { pattern: /^\d+(\.\d+)?$/, message: 'Please enter a valid price' }
             ]}
           >
-            <Input
-              placeholder="Enter price"
-              prefix="$"
-              type="number"
-              step="0.01"
-            />
+            <Input placeholder="Enter price" prefix="$" type="number" step="0.01" />
           </Form.Item>
 
           <Form.Item
@@ -324,26 +381,17 @@ export default function DashboardPage() {
             <Input placeholder="Enter SKU" />
           </Form.Item>
 
-          <Form.Item
-            name="availability"
-            valuePropName="checked"
-            rules={[{ required: false }]}
-          >
+          <Form.Item name="availability" valuePropName="checked" rules={[{ required: false }]}>
             <Checkbox>Available</Checkbox>
           </Form.Item>
 
-          <Form.Item
-            name="images"
-            label="Product Image URL"
-            // rules={[{ required: false, type: 'url', message: 'Please enter a valid URL' }]}
-          >
-            <Input 
+          <Form.Item name="images" label="Product Image URL">
+            <Input
               placeholder="Enter image URL (e.g., https://example.com/product-image.jpg)"
               onChange={(e) => setImageUrl(e.target.value)}
             />
           </Form.Item>
 
-          {/* Image Preview */}
           {form.getFieldValue('images') && (
             <Form.Item label="Image Preview">
               <Image
@@ -358,6 +406,89 @@ export default function DashboardPage() {
           )}
         </Form>
       </Modalview>
+
+      {/* Add Review Modal */}
+      <Modal
+        title={`Add Review for ${selectedProduct?.productName}`}
+        open={reviewModule}
+        onCancel={handleModalClose}
+        footer={[
+          <Button key="cancel" onClick={handleModalClose}>
+            Cancel
+          </Button>,
+          <Button key="submit" type="primary" onClick={() => reviewForm.submit()}>
+            Submit Review
+          </Button>
+        ]}
+        width={600}
+      >
+        <Form form={reviewForm} layout="vertical" onFinish={onSubmitReview}>
+          <Form.Item
+            name="rating"
+            label="Rating"
+            rules={[{ required: true, message: 'Please select a rating' }]}
+          >
+            <Rate allowHalf style={{ fontSize: 24 }} />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="Review Description"
+            rules={[{ required: true, message: 'Please enter your review' }]}
+          >
+            <TextArea rows={4} placeholder="Write your review here..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* View Reviews Modal */}
+      <Modal
+        title={`Reviews for ${selectedProduct?.productName}`}
+        open={viewReviewsModule}
+        onCancel={handleModalClose}
+        footer={[
+          <Button key="close" onClick={handleModalClose}>
+            Close
+          </Button>
+        ]}
+        width={700}
+      >
+        {reviews.length > 0 ? (
+          <List
+            itemLayout="vertical"
+            dataSource={reviews}
+            renderItem={(review) => (
+              <List.Item>
+                <Card style={{ marginBottom: 16 }}>
+                  <Space direction="vertical" size="middle">
+                    <div>
+                      <Rate disabled defaultValue={review.rating} />
+                      <Text type="secondary" style={{ marginLeft: 8 }}>
+                        Rating: {review.rating}/5
+                      </Text>
+                    </div>
+                    <div>
+                      <Text strong>Review: </Text>
+                      <Text>{review.description}</Text>
+                    </div>
+                    {review.createdAt && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Posted on: {new Date(review.createdAt).toLocaleDateString()}
+                      </Text>
+                    )}
+                  </Space>
+                </Card>
+              </List.Item>
+            )}
+          />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <StarOutlined style={{ fontSize: 48, color: '#ccc' }} />
+            <Title level={4} style={{ marginTop: 16 }}>No Reviews Yet</Title>
+            <Text type="secondary">Be the first to review this product!</Text>
+          </div>
+        )}
+      </Modal>
 
       {/* View Product Modal */}
       <Modal
